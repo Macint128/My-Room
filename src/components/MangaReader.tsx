@@ -115,7 +115,15 @@ export const MangaReader: React.FC = () => {
       setIsLoadingBooks(true);
       const res = await fetch('/api/books');
       if (res.ok) {
-        const data = await res.json();
+        const text = await res.text();
+        let data: any = {};
+        try {
+          if (text && (text.startsWith('{') || text.startsWith('['))) {
+            data = JSON.parse(text);
+          }
+        } catch (parseErr) {
+          console.warn('Failed to parse books response:', parseErr);
+        }
         if (data.snovels && data.snovels.length > 0) setSnovels(data.snovels);
         if (data.manga && data.manga.length > 0) setMangaList(data.manga);
       }

@@ -192,10 +192,19 @@ class PdfReaderEngine {
       });
 
       if (!res.ok) {
-        throw new Error('Translation server response error');
+        return dialogues.map((d) => ({ ...d, translatedText: d.originalText }));
       }
 
-      const data = await res.json();
+      const text = await res.text();
+      let data: any = {};
+      try {
+        if (text && (text.startsWith('{') || text.startsWith('['))) {
+          data = JSON.parse(text);
+        }
+      } catch (parseErr) {
+        console.warn('Translate response was non-JSON:', parseErr);
+      }
+
       const translations: Array<{ original: string; translated: string }> = data.translations || [];
 
       return dialogues.map((d, idx) => ({
@@ -203,7 +212,7 @@ class PdfReaderEngine {
         translatedText: translations[idx]?.translated || d.originalText,
       }));
     } catch (err) {
-      console.warn('Translate dialogues fallback error:', err);
+      console.warn('Translate dialogues fallback notice:', err);
       return dialogues.map((d) => ({
         ...d,
         translatedText: d.originalText,

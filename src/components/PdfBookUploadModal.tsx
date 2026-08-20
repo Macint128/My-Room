@@ -73,7 +73,19 @@ export const PdfBookUploadModal: React.FC<PdfBookUploadModalProps> = ({
 
     try {
       const res = await fetch(`/api/covers/search?query=${encodeURIComponent(q)}`);
-      const data = await res.json();
+      if (!res.ok) {
+        setInternetCovers([]);
+        return;
+      }
+      const rawText = await res.text();
+      let data: any = {};
+      try {
+        if (rawText && (rawText.startsWith('{') || rawText.startsWith('['))) {
+          data = JSON.parse(rawText);
+        }
+      } catch (parseErr) {
+        console.warn('Covers search parse error:', parseErr);
+      }
       if (data.results && Array.isArray(data.results)) {
         setInternetCovers(data.results);
       } else {
@@ -81,6 +93,7 @@ export const PdfBookUploadModal: React.FC<PdfBookUploadModalProps> = ({
       }
     } catch (err) {
       console.error('Failed to search covers:', err);
+      setInternetCovers([]);
     } finally {
       setIsSearchingCovers(false);
     }
@@ -197,9 +210,18 @@ export const PdfBookUploadModal: React.FC<PdfBookUploadModalProps> = ({
         }),
       });
 
-      const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error);
+      const rawText = await response.text();
+      let data: any = {};
+      try {
+        if (rawText && (rawText.startsWith('{') || rawText.startsWith('['))) {
+          data = JSON.parse(rawText);
+        }
+      } catch (parseErr) {
+        console.warn('Upload parse error:', parseErr);
+      }
+
+      if (!response.ok || data.error) {
+        throw new Error(data.error || '보관함 등록에 실패했습니다. (서버 응답 오류)');
       }
 
       // If user selected an internet cover URL, override coverPath
