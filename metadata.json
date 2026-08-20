@@ -1,0 +1,6 @@
+{
+  "name": "나만의 아늑한 방 (Cozy Sanctuary)",
+  "description": "애플 글래스모피즘과 따스한 감성 조명이 어우러진 나만의 힐링 방. 3D 양면 책 넘김 만화/라노벨 서재, 사계절 식물을 심고 가꾸는 나만의 정원, 로파이 음악 라운지, 홈 시네마 및 반응형 사이드바.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
