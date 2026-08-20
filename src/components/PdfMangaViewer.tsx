@@ -11,12 +11,14 @@ import {
   Loader2, 
   Volume2, 
   VolumeX,
-  Layers,
+  Languages,
   Sparkles
 } from 'lucide-react';
 import { PdfBook } from '../types.ts';
 import { audioEngine } from '../utils/audioEngine.ts';
-import { pdfReaderEngine } from '../utils/pdfReaderEngine.ts';
+import { pdfReaderEngine, DialogueBlock } from '../utils/pdfReaderEngine.ts';
+import { DialogueLocalizationDock } from './DialogueLocalizationDock.tsx';
+import { SpeechBubbleOverlay } from './SpeechBubbleOverlay.tsx';
 import type * as pdfjsLib from 'pdfjs-dist';
 
 interface PdfMangaViewerProps {
@@ -34,7 +36,14 @@ export const PdfMangaViewer: React.FC<PdfMangaViewerProps> = ({ book, onClose })
   const [zoomScale, setZoomScale] = useState<number>(1.4);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
-  const [showThumbnails, setShowThumbnails] = useState<boolean>(false);
+
+  // Automatic Dialogue Localization State
+  const [isLocalizationOpen, setIsLocalizationOpen] = useState<boolean>(false);
+  const [isLocalizing, setIsLocalizing] = useState<boolean>(false);
+  const [targetLang, setTargetLang] = useState<string>('ko');
+  const [showOverlay, setShowOverlay] = useState<boolean>(true);
+  const [displayMode, setDisplayMode] = useState<'translated' | 'original' | 'dual'>('translated');
+  const [dialogues, setDialogues] = useState<DialogueBlock[]>([]);
 
   const flipCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const webtoonContainerRef = useRef<HTMLDivElement | null>(null);
@@ -56,7 +65,7 @@ export const PdfMangaViewer: React.FC<PdfMangaViewerProps> = ({ book, onClose })
       .catch((err) => {
         if (!isMounted) return;
         console.error('Failed to load Manga PDF:', err);
-        setErrorMessage(`만화 PDF를 불러오는 데 실패했습니다 (${book.pdfPath}).`);
+        setErrorMessage('만화 PDF를 불러오는 데 실패했습니다. 다시 시도해주세요.');
         setIsLoading(false);
       });
 
@@ -64,6 +73,36 @@ export const PdfMangaViewer: React.FC<PdfMangaViewerProps> = ({ book, onClose })
       isMounted = false;
     };
   }, [book.pdfPath]);
+
+  // Dialogue extraction & localization handler
+  const scanAndLocalizePage = async () => {
+    if (!pdfDoc) return;
+    setIsLocalizing(true);
+
+    try {
+      const raw = await pdfReaderEngine.extractPageDialogues(pdfDoc, currentPage);
+      const translated = await pdfReaderEngine.translateDialogues(raw, targetLang);
+      setDialogues(translated);
+    } catch (err) {
+      console.warn('Manga localization notice:', err);
+    } finally {
+      setIsLocalizing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isLocalizationOpen && pdfDoc) {
+      scanAndLocalizePage();
+    }
+  }, [currentPage, isLocalizationOpen, targetLang]);
+
+  const handleToggleLocalization = () => {
+    const next = !isLocalizationOpen;
+    setIsLocalizationOpen(next);
+    if (next && pdfDoc) {
+      scanAndLocalizePage();
+    }
+  };
 
   // Render Page in Flip Mode
   useEffect(() => {
@@ -145,69 +184,85 @@ export const PdfMangaViewer: React.FC<PdfMangaViewerProps> = ({ book, onClose })
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-between bg-slate-950/95 backdrop-blur-2xl animate-fadeIn text-white">
-      {/* 1. Header Toolbar */}
-      <div className="w-full px-4 sm:px-6 py-3 flex items-center justify-between bg-slate-900/80 border-b border-white/10 shadow-lg z-30">
-        <div className="flex items-center gap-3 min-w-0">
+      {/* 1. Header Toolbar (Snugly connected flush controls, zero gaps) */}
+      <div className="w-full px-3 sm:px-6 py-2 flex items-center justify-between bg-slate-900/90 border-b border-white/15 shadow-xl z-30">
+        {/* Left Segment: Back button + Title */}
+        <div className="flex items-center divide-x divide-white/10 rounded-xl bg-white/5 border border-white/10 p-0.5 overflow-hidden">
           <button
             onClick={onClose}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold text-white transition-all hover:scale-105"
+            className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white hover:bg-white/10 transition-colors"
           >
             <ChevronLeft className="w-4 h-4" />
-            <span>만화 서재</span>
+            <span>서재</span>
           </button>
-          <div className="min-w-0">
-            <h2 className="text-sm font-bold text-white truncate max-w-[260px] sm:max-w-md">
+          <div className="px-3 py-1 text-left hidden sm:block">
+            <h2 className="text-xs font-bold text-white truncate max-w-[200px] lg:max-w-md">
               {book.title}
             </h2>
-            <p className="text-[11px] text-emerald-400 font-mono truncate">
-              {book.vol || '만화 단행본'} • {book.author}
-            </p>
+            <p className="text-[10px] text-emerald-400 font-mono truncate">{book.vol || '단행본'} • {book.author}</p>
           </div>
         </div>
 
-        {/* Action Controls */}
-        <div className="flex items-center gap-2">
+        {/* Right Segment: Flush Connected Tool Group */}
+        <div className="flex items-center divide-x divide-white/10 rounded-xl bg-white/5 border border-white/10 p-0.5 overflow-hidden">
           {/* Mode Switch: Webtoon Scroll vs Page Flip */}
-          <div className="flex items-center bg-white/5 border border-white/10 rounded-xl p-0.5">
+          <div className="flex items-center">
             <button
               onClick={() => setReadingMode('page_flip')}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+              className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold transition-all ${
                 readingMode === 'page_flip'
-                  ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                  ? 'bg-emerald-500/30 text-emerald-200'
                   : 'text-slate-400 hover:text-white'
               }`}
+              title="페이지 넘김 모드"
             >
               <BookOpen className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">페이지 넘김</span>
+              <span className="hidden md:inline text-[10px]">넘김</span>
             </button>
             <button
               onClick={() => setReadingMode('webtoon')}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+              className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold transition-all ${
                 readingMode === 'webtoon'
-                  ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                  ? 'bg-emerald-500/30 text-emerald-200'
                   : 'text-slate-400 hover:text-white'
               }`}
+              title="웹툰 스크롤 모드"
             >
               <Scroll className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">스크롤</span>
+              <span className="hidden md:inline text-[10px]">스크롤</span>
             </button>
           </div>
 
+          {/* Automatic Dialogue Localization Trigger Capsule */}
+          <button
+            onClick={handleToggleLocalization}
+            className={`flex items-center gap-1 px-3 py-1.5 text-xs font-bold transition-all ${
+              isLocalizationOpen
+                ? 'bg-amber-500 text-slate-950 shadow-md scale-105'
+                : 'text-amber-300 hover:bg-white/10'
+            }`}
+            title="자동 대사 로컬라이징 번역 열기"
+          >
+            <Languages className="w-3.5 h-3.5" />
+            <span className="text-[10px]">대사 번역</span>
+            {isLocalizing && <Loader2 className="w-3 h-3 animate-spin" />}
+          </button>
+
           {/* Zoom controls */}
-          <div className="hidden sm:flex items-center gap-1 bg-white/5 border border-white/10 rounded-xl px-2 py-1">
+          <div className="hidden sm:flex items-center">
             <button
               onClick={() => setZoomScale((prev) => Math.max(0.8, prev - 0.2))}
-              className="p-1 text-slate-300 hover:text-white"
+              className="p-1.5 text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
               title="축소"
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
-            <span className="text-[10px] font-mono text-emerald-300 w-9 text-center">
+            <span className="text-[10px] font-mono text-emerald-300 px-1 text-center">
               {Math.round(zoomScale * 100)}%
             </span>
             <button
               onClick={() => setZoomScale((prev) => Math.min(2.4, prev + 0.2))}
-              className="p-1 text-slate-300 hover:text-white"
+              className="p-1.5 text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
               title="확대"
             >
               <ZoomIn className="w-3.5 h-3.5" />
@@ -217,31 +272,29 @@ export const PdfMangaViewer: React.FC<PdfMangaViewerProps> = ({ book, onClose })
           {/* Sound Toggle */}
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
-            className={`p-2 rounded-xl border transition-all ${
-              soundEnabled ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300' : 'bg-white/5 border-white/10 text-slate-400'
-            }`}
-            title="효과음"
+            className="p-1.5 text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+            title="효과음 토글"
           >
-            {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+            {soundEnabled ? <Volume2 className="w-3.5 h-3.5 text-emerald-400" /> : <VolumeX className="w-3.5 h-3.5 text-slate-500" />}
           </button>
 
           {/* Full Screen */}
           <button
             onClick={toggleFullScreen}
-            className="p-2 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 text-slate-200"
+            className="p-1.5 text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
             title="전체화면"
           >
-            {isFullScreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            {isFullScreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
           </button>
         </div>
       </div>
 
       {/* 2. Main Manga Viewport */}
-      <div className="flex-1 w-full flex items-center justify-center overflow-auto p-4 relative min-h-0">
+      <div className="flex-1 w-full flex items-center justify-center overflow-auto p-2 sm:p-4 relative min-h-0">
         {isLoading ? (
           <div className="flex flex-col items-center gap-3 text-slate-300">
             <Loader2 className="w-8 h-8 animate-spin text-emerald-400" />
-            <p className="text-sm font-semibold">만화 PDF 로딩 중... ({book.pdfPath})</p>
+            <p className="text-sm font-semibold">만화 로딩 중...</p>
           </div>
         ) : errorMessage ? (
           <div className="p-6 rounded-3xl bg-red-950/60 border border-red-500/30 text-center max-w-md">
@@ -254,13 +307,20 @@ export const PdfMangaViewer: React.FC<PdfMangaViewerProps> = ({ book, onClose })
             </button>
           </div>
         ) : readingMode === 'page_flip' ? (
-          /* Page Flip View */
+          /* Page Flip View with Speech Bubble Overlay */
           <div className="relative flex flex-col items-center justify-center max-h-full max-w-full">
             <div className="relative rounded-2xl overflow-hidden shadow-2xl bg-black border border-white/15 p-1 flex items-center justify-center">
               <canvas ref={flipCanvasRef} className="max-h-[75vh] max-w-full object-contain rounded-xl" />
+              {isLocalizationOpen && showOverlay && (
+                <SpeechBubbleOverlay
+                  dialogues={dialogues}
+                  displayMode={displayMode}
+                  targetLang={targetLang}
+                />
+              )}
             </div>
 
-            {/* Click zones on left & right for easy page flipping */}
+            {/* Click zones for flipping */}
             <div 
               onClick={handlePrevPage}
               className="absolute left-0 top-0 bottom-0 w-1/4 cursor-w-resize hover:bg-white/5 transition-colors flex items-center justify-start pl-4"
@@ -286,20 +346,22 @@ export const PdfMangaViewer: React.FC<PdfMangaViewerProps> = ({ book, onClose })
         )}
       </div>
 
-      {/* 3. Bottom Manga Control Bar */}
+      {/* 3. Bottom Manga Control Bar (Snug connected controls) */}
       {readingMode === 'page_flip' && !isLoading && (
-        <div className="w-full px-6 py-3 bg-slate-900/80 border-t border-white/10 flex items-center justify-between z-30">
-          <button
-            onClick={handlePrevPage}
-            disabled={currentPage <= 1}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:pointer-events-none text-white font-semibold text-xs transition-all hover:scale-105"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            <span>이전 페이지</span>
-          </button>
+        <div className="w-full px-4 sm:px-6 py-2.5 bg-slate-900/90 border-t border-white/15 flex items-center justify-between z-30">
+          <div className="flex items-center divide-x divide-white/10 rounded-xl bg-slate-950 border border-white/15 p-0.5 overflow-hidden">
+            <button
+              onClick={handlePrevPage}
+              disabled={currentPage <= 1}
+              className="flex items-center gap-1 px-3 py-1.5 text-white font-semibold text-xs hover:bg-white/10 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              <span>이전</span>
+            </button>
+          </div>
 
           {/* Slider & Page Marker */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5 px-3 py-1 rounded-xl bg-slate-950 border border-white/15">
             <input
               type="range"
               min="1"
@@ -309,23 +371,42 @@ export const PdfMangaViewer: React.FC<PdfMangaViewerProps> = ({ book, onClose })
                 setCurrentPage(Number(e.target.value));
                 if (soundEnabled) audioEngine.playPageFlip();
               }}
-              className="w-36 sm:w-64 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-400"
+              className="w-28 sm:w-60 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-400"
             />
-            <span className="font-mono text-emerald-300 text-xs min-w-[70px] text-right font-bold">
+            <span className="font-mono text-emerald-300 text-xs min-w-[65px] text-right font-bold">
               {currentPage} / {totalPages}
             </span>
           </div>
 
-          <button
-            onClick={handleNextPage}
-            disabled={currentPage >= totalPages}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:pointer-events-none text-white font-semibold text-xs transition-all hover:scale-105"
-          >
-            <span>다음 페이지</span>
-            <ChevronRight className="w-4 h-4" />
-          </button>
+          <div className="flex items-center divide-x divide-white/10 rounded-xl bg-slate-950 border border-white/15 p-0.5 overflow-hidden">
+            <button
+              onClick={handleNextPage}
+              disabled={currentPage >= totalPages}
+              className="flex items-center gap-1 px-3 py-1.5 text-white font-semibold text-xs hover:bg-white/10 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+            >
+              <span>다음</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       )}
+
+      {/* 4. Automatic Dialogue Localization Dock */}
+      <DialogueLocalizationDock
+        isOpen={isLocalizationOpen}
+        onClose={() => setIsLocalizationOpen(false)}
+        dialogues={dialogues}
+        isLoading={isLocalizing}
+        currentPage={currentPage}
+        totalPages={totalPages}
+        targetLang={targetLang}
+        onChangeTargetLang={setTargetLang}
+        showOverlay={showOverlay}
+        onToggleOverlay={() => setShowOverlay(!showOverlay)}
+        displayMode={displayMode}
+        onChangeDisplayMode={setDisplayMode}
+        onRescan={scanAndLocalizePage}
+      />
     </div>
   );
 };

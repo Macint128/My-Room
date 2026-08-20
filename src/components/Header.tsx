@@ -9,7 +9,8 @@ import {
   Moon, 
   CloudRain, 
   Coffee,
-  Sliders
+  Sliders,
+  Languages
 } from 'lucide-react';
 import { TabType, TimeOfDay, WeatherType, TeaOption, RoomLightingState } from '../types.ts';
 
@@ -58,10 +59,10 @@ export const Header: React.FC<HeaderProps> = ({
 
   const getTimeIcon = () => {
     switch (timeOfDay) {
-      case 'morning': return <Sun className="w-4 h-4 text-amber-300" />;
-      case 'afternoon': return <SunMedium className="w-4 h-4 text-sky-300" />;
-      case 'sunset': return <Sunset className="w-4 h-4 text-orange-400" />;
-      case 'night': return <Moon className="w-4 h-4 text-indigo-300" />;
+      case 'morning': return <Sun className="w-3.5 h-3.5 text-amber-300" />;
+      case 'afternoon': return <SunMedium className="w-3.5 h-3.5 text-sky-300" />;
+      case 'sunset': return <Sunset className="w-3.5 h-3.5 text-orange-400" />;
+      case 'night': return <Moon className="w-3.5 h-3.5 text-indigo-300" />;
     }
   };
 
@@ -76,12 +77,12 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-40 w-full px-4 sm:px-6 pt-3 pb-3 backdrop-blur-2xl bg-slate-950/70 border-b border-white/10 transition-all duration-300">
+    <header className="sticky top-0 z-40 w-full px-3 sm:px-6 pt-2.5 pb-2.5 backdrop-blur-2xl bg-slate-950/80 border-b border-white/10 transition-all duration-300">
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
-        {/* App Title & Dynamic Aura for Mobile & Desktop */}
-        <div className="flex items-center gap-3">
+        {/* App Title & Dynamic Aura */}
+        <div className="flex items-center gap-2.5">
           <div 
-            className="w-9 h-9 rounded-2xl flex items-center justify-center shadow-lg border border-white/20 transition-all duration-500 relative overflow-hidden"
+            className="w-8 h-8 sm:w-9 sm:h-9 rounded-2xl flex items-center justify-center shadow-lg border border-white/20 transition-all duration-500 relative overflow-hidden shrink-0"
             style={{
               background: `linear-gradient(135deg, ${lighting.color}44, ${lighting.glowColor}88)`,
               boxShadow: `0 0 16px ${lighting.glowColor}44`,
@@ -94,60 +95,60 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <span className="text-sm font-bold tracking-tight text-white">나만의 방</span>
+              <span className="text-sm font-bold tracking-tight text-white">My Room</span>
               <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded-full bg-white/10 text-amber-300 border border-white/10">
                 Cozy Haven
               </span>
             </div>
             <p className="text-[10px] text-slate-400 font-light truncate hidden sm:block">
-              애플 감성 글래스모피즘 힐링 공간
+              나만의 아늑한 힐링 룸 & 라이브러리
             </p>
           </div>
         </div>
 
-        {/* Quick Ambient Environmental Controls (Time, Weather, Sound, Tea) */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
+        {/* Snugly Packed, Flush Environmental Controls (Zero Gaps) */}
+        <div className="flex items-center divide-x divide-white/10 rounded-2xl bg-slate-900/90 border border-white/15 p-0.5 shadow-xl overflow-hidden">
           {/* Time Switcher Capsule */}
           <button
             onClick={cycleTimeOfDay}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 text-xs font-semibold text-slate-200 transition-all hover:scale-105"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/10 transition-colors"
             title="시간대 전환 (아침/오후/노을/심야)"
           >
             {getTimeIcon()}
-            <span className="capitalize text-[11px] hidden sm:inline">{timeOfDay}</span>
+            <span className="capitalize text-[10px] hidden sm:inline">{timeOfDay}</span>
           </button>
 
           {/* Weather Switcher Capsule */}
           <button
             onClick={cycleWeather}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 text-xs font-semibold text-slate-200 transition-all hover:scale-105"
+            className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/10 transition-colors"
             title="창밖 날씨 전환 (비/벚꽃/반딧불이/눈/맑음)"
           >
-            <span>{getWeatherIcon()}</span>
-            <span className="capitalize text-[11px] hidden sm:inline">{weather}</span>
+            <span className="text-xs">{getWeatherIcon()}</span>
+            <span className="capitalize text-[10px] hidden sm:inline">{weather}</span>
           </button>
 
           {/* Sound Mixer Quick Open */}
           <button
             onClick={onOpenSoundMixer}
-            className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 text-xs font-semibold text-emerald-300 transition-all hover:scale-105"
+            className="flex items-center gap-1 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-white/10 transition-colors"
             title="사운드스케이프 믹서 열기"
           >
             <Sliders className="w-3.5 h-3.5" />
-            <span className="text-[11px] hidden sm:inline">사운드</span>
+            <span className="text-[10px] hidden sm:inline">사운드</span>
           </button>
 
           {/* Master Mute Toggle */}
           <button
             onClick={onToggleMute}
-            className={`p-1.5 sm:p-2 rounded-xl border transition-all ${
+            className={`p-1.5 sm:px-2.5 py-1.5 text-xs font-semibold transition-colors ${
               isMuted
-                ? 'bg-red-500/10 border-red-500/30 text-red-400'
-                : 'bg-white/5 border-white/10 text-slate-300 hover:text-white hover:bg-white/10'
+                ? 'bg-red-500/20 text-red-400'
+                : 'text-slate-300 hover:text-white hover:bg-white/10'
             }`}
             title={isMuted ? '음소거 해제' : '음소거'}
           >
-            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
+            {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
           </button>
         </div>
       </div>

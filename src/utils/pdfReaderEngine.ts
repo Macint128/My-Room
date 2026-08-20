@@ -16,6 +16,16 @@ export interface PdfDocumentInfo {
   author?: string;
 }
 
+export interface DialogueBlock {
+  id: string;
+  originalText: string;
+  translatedText?: string;
+  xRatio?: number;
+  yRatio?: number;
+  speaker?: string;
+  isDialogue?: boolean;
+}
+
 class PdfReaderEngine {
   private docCache = new Map<string, pdfjsLib.PDFDocumentProxy>();
 
@@ -89,6 +99,115 @@ class PdfReaderEngine {
         .trim();
     } catch {
       return '';
+    }
+  }
+
+  /**
+   * Extract dialogue lines & speech bubble candidates from a PDF page
+   */
+  public async extractPageDialogues(
+    pdfDoc: pdfjsLib.PDFDocumentProxy,
+    pageNumber: number
+  ): Promise<DialogueBlock[]> {
+    try {
+      const page = await pdfDoc.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 1.0 });
+      const textContent = await page.getTextContent();
+
+      const blocks: DialogueBlock[] = [];
+      const lines: Array<{ text: string; x: number; y: number }> = [];
+
+      for (const item of textContent.items as any[]) {
+        const str = (item.str || '').trim();
+        if (!str) continue;
+
+        const tx = item.transform ? item.transform[4] : 0;
+        const ty = item.transform ? viewport.height - item.transform[5] : 0;
+
+        lines.push({
+          text: str,
+          x: Math.max(0, Math.min(viewport.width, tx)),
+          y: Math.max(0, Math.min(viewport.height, ty)),
+        });
+      }
+
+      if (lines.length === 0) {
+        return [];
+      }
+
+      // Group nearby lines into dialogue sentences
+      let currentSentence = '';
+      let startX = lines[0].x;
+      let startY = lines[0].y;
+      let count = 0;
+
+      for (let i = 0; i < lines.length; i++) {
+        const item = lines[i];
+        currentSentence += (currentSentence ? ' ' : '') + item.text;
+
+        const isEnd = /[.?!。？！』」"]$/.test(item.text) || i === lines.length - 1;
+        if (isEnd || currentSentence.length > 70) {
+          const clean = currentSentence.trim();
+          if (clean.length > 1) {
+            const isQuote = /^["'「『]/.test(clean) || /["'」』]$/.test(clean);
+            blocks.push({
+              id: `dialogue_${pageNumber}_${count++}`,
+              originalText: clean,
+              xRatio: Math.max(0.05, Math.min(0.9, startX / viewport.width)),
+              yRatio: Math.max(0.05, Math.min(0.9, startY / viewport.height)),
+              isDialogue: isQuote || clean.length < 80,
+            });
+          }
+          currentSentence = '';
+          if (i + 1 < lines.length) {
+            startX = lines[i + 1].x;
+            startY = lines[i + 1].y;
+          }
+        }
+      }
+
+      return blocks;
+    } catch (e) {
+      console.warn('Dialogue extraction notice:', e);
+      return [];
+    }
+  }
+
+  /**
+   * Translate a list of dialogue blocks into the target language via backend /api/translate
+   */
+  public async translateDialogues(
+    dialogues: DialogueBlock[],
+    targetLang = 'ko',
+    sourceLang = 'auto'
+  ): Promise<DialogueBlock[]> {
+    if (dialogues.length === 0) return [];
+
+    try {
+      const texts = dialogues.map((d) => d.originalText);
+      const res = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ texts, targetLang, sourceLang }),
+      });
+
+      if (!res.ok) {
+        throw new Error('Translation server response error');
+      }
+
+      const data = await res.json();
+      const translations: Array<{ original: string; translated: string }> = data.translations || [];
+
+      return dialogues.map((d, idx) => ({
+        ...d,
+        translatedText: translations[idx]?.translated || d.originalText,
+      }));
+    } catch (err) {
+      console.warn('Translate dialogues fallback error:', err);
+      return dialogues.map((d) => ({
+        ...d,
+        translatedText: d.originalText,
+      }));
     }
   }
 

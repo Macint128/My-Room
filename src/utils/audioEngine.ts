@@ -113,6 +113,28 @@ class AudioEngine {
     noise.start();
   }
 
+  /** Plays a subtle acoustic click for UI interactions */
+  public playUiClick() {
+    const ctx = this.initContext();
+    if (!this.masterGain) return;
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(800, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.04);
+
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.04);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+
+    osc.start();
+    osc.stop(ctx.currentTime + 0.04);
+  }
+
   /** Plays a soothing tea water pour sound */
   public playTeaPour() {
     const ctx = this.initContext();

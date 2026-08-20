@@ -108,12 +108,12 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <span className="text-sm font-bold tracking-tight text-white">나만의 방</span>
+              <span className="text-sm font-bold tracking-tight text-white">My Room</span>
               <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded-full bg-white/10 text-amber-300 border border-white/15">
                 Cozy
               </span>
             </div>
-            <p className="text-[11px] text-slate-400 font-light truncate">애플 감성 힐링 공간</p>
+            <p className="text-[11px] text-slate-400 font-light truncate">나만의 힐링 룸 & 라이브러리</p>
           </div>
         </div>
 

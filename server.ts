@@ -87,11 +87,256 @@ app.get("/api/books/cover-svg", (req, res) => {
     <text x="300" y="575" font-family="-apple-system, sans-serif" font-size="17" fill="#cbd5e1" text-anchor="middle">${author.replace(/[<>&"]/g, '')}</text>
     
     <line x1="200" y1="630" x2="400" y2="630" stroke="${primaryColor}" stroke-width="2" stroke-opacity="0.4"/>
-    <text x="300" y="780" font-family="-apple-system, sans-serif" font-size="13" fill="#94a3b8" text-anchor="middle">Cozy Sanctuary Library</text>
+    <text x="300" y="780" font-family="-apple-system, sans-serif" font-size="13" fill="#94a3b8" text-anchor="middle">My Room Library</text>
   </svg>`;
 
   res.setHeader("Content-Type", "image/svg+xml");
   res.send(svg);
+});
+
+// --- Internet Cover Search & Proxy APIs (No .env or API keys needed) ---
+app.get("/api/covers/search", async (req, res) => {
+  try {
+    const query = (req.query.query as string || "").trim();
+    if (!query) {
+      return res.json({ results: [] });
+    }
+
+    const results: Array<{
+      id: string;
+      title: string;
+      author?: string;
+      coverUrl: string;
+      source: string;
+    }> = [];
+
+    const seenUrls = new Set<string>();
+
+    // 1. Search iTunes Store / Apple Books (Very high resolution & fast)
+    try {
+      const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=ebook&limit=8`;
+      const itunesRes = await fetch(itunesUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      if (itunesRes.ok) {
+        const itunesData = await itunesRes.json();
+        if (itunesData.results && Array.isArray(itunesData.results)) {
+          for (const item of itunesData.results) {
+            let img = item.artworkUrl100 || item.artworkUrl60;
+            if (img) {
+              // Get 600x600 or 1000x1000 high-res artwork from iTunes CDN
+              img = img.replace(/\/\d+x\d+bb\./, '/600x600bb.');
+              if (!seenUrls.has(img)) {
+                seenUrls.add(img);
+                results.push({
+                  id: `itunes_${item.trackId || results.length}`,
+                  title: item.trackName || item.collectionName || query,
+                  author: item.artistName || '',
+                  coverUrl: img,
+                  source: 'Apple Books',
+                });
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("iTunes search error:", e);
+    }
+
+    // 2. Search Google Books API (Great for Korean, Japanese, English novels & manga)
+    try {
+      const gBooksUrl = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=8`;
+      const gRes = await fetch(gBooksUrl);
+      if (gRes.ok) {
+        const gData = await gRes.json();
+        if (gData.items && Array.isArray(gData.items)) {
+          for (const item of gData.items) {
+            const volInfo = item.volumeInfo || {};
+            const imgLinks = volInfo.imageLinks || {};
+            let img = imgLinks.extraLarge || imgLinks.large || imgLinks.medium || imgLinks.thumbnail || imgLinks.smallThumbnail;
+            if (img) {
+              img = img.replace(/^http:\/\//i, 'https://');
+              // Request higher quality if possible
+              if (img.includes('&zoom=')) {
+                img = img.replace(/&zoom=\d+/, '&zoom=2');
+              }
+              if (!seenUrls.has(img)) {
+                seenUrls.add(img);
+                results.push({
+                  id: `gbooks_${item.id}`,
+                  title: volInfo.title || query,
+                  author: (volInfo.authors || []).join(', '),
+                  coverUrl: img,
+                  source: 'Google Books',
+                });
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Google Books search error:", e);
+    }
+
+    // 3. Search Open Library (Global open repository)
+    try {
+      const olUrl = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=6`;
+      const olRes = await fetch(olUrl);
+      if (olRes.ok) {
+        const olData = await olRes.json();
+        if (olData.docs && Array.isArray(olData.docs)) {
+          for (const doc of olData.docs) {
+            if (doc.cover_i) {
+              const img = `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
+              if (!seenUrls.has(img)) {
+                seenUrls.add(img);
+                results.push({
+                  id: `ol_${doc.cover_i}`,
+                  title: doc.title || query,
+                  author: (doc.author_name || []).join(', '),
+                  coverUrl: img,
+                  source: 'Open Library',
+                });
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Open Library search error:", e);
+    }
+
+    // 4. Jikan / MyAnimeList Manga API (Manga / Anime / Light Novel titles)
+    try {
+      const jikanUrl = `https://api.jikan.moe/v4/manga?q=${encodeURIComponent(query)}&limit=5`;
+      const jikanRes = await fetch(jikanUrl);
+      if (jikanRes.ok) {
+        const jikanData = await jikanRes.json();
+        if (jikanData.data && Array.isArray(jikanData.data)) {
+          for (const manga of jikanData.data) {
+            const img = manga.images?.jpg?.large_image_url || manga.images?.jpg?.image_url || manga.images?.webp?.large_image_url;
+            if (img && !seenUrls.has(img)) {
+              seenUrls.add(img);
+              results.push({
+                id: `jikan_${manga.mal_id}`,
+                title: manga.title || manga.title_japanese || query,
+                author: manga.authors?.map((a: any) => a.name).join(', ') || '',
+                coverUrl: img,
+                source: 'Anime & Manga DB',
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // Jikan has rate-limits, fail gracefully
+    }
+
+    res.json({ results });
+  } catch (error) {
+    console.error("Cover search failure:", error);
+    res.status(500).json({ error: "Failed to search internet covers", results: [] });
+  }
+});
+
+// Image Proxy to avoid CORS and load external covers smoothly
+app.get("/api/covers/proxy", async (req, res) => {
+  try {
+    const url = req.query.url as string;
+    if (!url) {
+      return res.status(400).send("URL is required");
+    }
+
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+    });
+
+    if (!response.ok) {
+      return res.status(response.status).send("Failed to fetch image");
+    }
+
+    const contentType = response.headers.get("content-type") || "image/jpeg";
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.send(buffer);
+  } catch (err) {
+    console.error("Image proxy error:", err);
+    res.status(500).send("Image proxy failed");
+  }
+});
+
+// --- Automatic Dialogue Localization & Translation Engine (No .env or API keys needed) ---
+app.post("/api/translate", async (req, res) => {
+  try {
+    const { texts, targetLang = 'ko', sourceLang = 'auto' } = req.body;
+    if (!texts || (Array.isArray(texts) && texts.length === 0)) {
+      return res.json({ translations: [] });
+    }
+
+    const inputList: string[] = Array.isArray(texts) ? texts : [texts];
+    const translations: Array<{ original: string; translated: string; lang: string }> = [];
+
+    // Process translations in batches or single joined requests for speed
+    for (const text of inputList) {
+      const cleanText = (text || "").trim();
+      if (!cleanText) {
+        translations.push({ original: text, translated: text, lang: targetLang });
+        continue;
+      }
+
+      let translatedResult = '';
+
+      // 1. Google Translate Public Free Endpoint (Instant, High Quality, Multi-language)
+      try {
+        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(cleanText)}`;
+        const gRes = await fetch(url, { 
+          headers: { 
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' 
+          } 
+        });
+        if (gRes.ok) {
+          const gData = await gRes.json();
+          if (Array.isArray(gData) && Array.isArray(gData[0])) {
+            translatedResult = gData[0].map((item: any) => item[0]).filter(Boolean).join('');
+          }
+        }
+      } catch (err) {
+        console.warn("Google translate API fallback:", err);
+      }
+
+      // 2. Fallback to MyMemory Public API
+      if (!translatedResult) {
+        try {
+          const sLang = sourceLang === 'auto' ? 'ja' : sourceLang;
+          const mmUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(cleanText)}&langpair=${sLang}|${targetLang}`;
+          const mmRes = await fetch(mmUrl);
+          if (mmRes.ok) {
+            const mmData = await mmRes.json();
+            if (mmData.responseData && mmData.responseData.translatedText) {
+              translatedResult = mmData.responseData.translatedText;
+            }
+          }
+        } catch (mmErr) {
+          console.warn("MyMemory fallback error:", mmErr);
+        }
+      }
+
+      translations.push({
+        original: cleanText,
+        translated: translatedResult || cleanText,
+        lang: targetLang,
+      });
+    }
+
+    res.json({ translations });
+  } catch (error) {
+    console.error("Translation API error:", error);
+    res.status(500).json({ error: "Translation failed", translations: [] });
+  }
 });
 
 // --- Book / Manga / SNovel PDF Library Management APIs ---
