@@ -48,6 +48,24 @@ export interface TeaOption {
   ingredients: string[];
 }
 
+export type BookCategory = 'snovel' | 'manga';
+
+export interface PdfBook {
+  id: string;
+  folderName?: string;
+  type: BookCategory;
+  title: string;
+  titleEn?: string;
+  author: string;
+  vol?: string;
+  description: string;
+  pdfPath: string;
+  coverPath: string;
+  pageCount?: number;
+  genre?: string;
+  isCustomUploaded?: boolean;
+}
+
 export interface LightNovelStory {
   id: string;
   title: string;

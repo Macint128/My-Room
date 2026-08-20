@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
@@ -13,7 +14,15 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = 3000;
 
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+// Static serving for Book assets in /public/Book
+const bookDir = path.join(process.cwd(), "public", "Book");
+if (!fs.existsSync(bookDir)) {
+  fs.mkdirSync(bookDir, { recursive: true });
+}
+app.use("/Book", express.static(bookDir));
 
 // Lazy initialization of Gemini client
 let aiClient: GoogleGenAI | null = null;
@@ -38,129 +47,248 @@ function getGeminiAI(): GoogleGenAI | null {
 app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
-    hasApiKey: !!process.env.GEMINI_API_KEY,
   });
 });
 
-// Gemini Story & Light Novel Generation
-app.post("/api/gemini/story", async (req, res) => {
-  try {
-    const { genre, character, mood, prompt, wordCount = 600 } = req.body;
-    const ai = getGeminiAI();
+// Dynamic SVG Cover Generator for books without cover image
+app.get("/api/books/cover-svg", (req, res) => {
+  const title = (req.query.title as string) || "Book";
+  const author = (req.query.author as string) || "Library Edition";
+  const type = (req.query.type as string) || "snovel";
+  const isNovel = type === "snovel";
 
-    if (!ai) {
-      // Fallback cozy story if API key is not yet set
-      return res.json({
-        title: `${genre || "감성"} - 달빛 아래의 소소한 이야기`,
-        content: `창밖으로 은은한 달빛이 스며드는 밤이었습니다. ${character || "주인공"}은 따뜻한 캐모마일 차 한 잔을 찻잔에 따르며 책장을 천천히 넘겼습니다. 
+  const primaryColor = isNovel ? "#f59e0b" : "#10b981";
+  const bgGradStart = isNovel ? "#1e1b4b" : "#064e3b";
+  const bgGradEnd = "#0f172a";
+  const badgeText = isNovel ? "LIGHT NOVEL" : "MANGA COMICS";
 
-방 안에는 나무 향과 오래된 종이 냄새, 그리고 스피커에서 흘러나오는 잔잔한 피아노 선율이 가득했습니다. 은은한 오렌지빛 스탠드 조명이 유리 테이블 위에 부드러운 그림자를 드리우고 있었습니다.
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="850" viewBox="0 0 600 850">
+    <defs>
+      <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="${bgGradStart}"/>
+        <stop offset="100%" stop-color="${bgGradEnd}"/>
+      </linearGradient>
+      <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="${primaryColor}"/>
+        <stop offset="100%" stop-color="#fbbf24"/>
+      </linearGradient>
+    </defs>
+    <rect width="600" height="850" fill="url(#bg)"/>
+    <rect x="24" y="24" width="552" height="802" rx="14" fill="none" stroke="${primaryColor}" stroke-width="2" stroke-opacity="0.5"/>
+    <rect x="36" y="36" width="528" height="778" rx="10" fill="none" stroke="#ffffff" stroke-width="1" stroke-opacity="0.15"/>
+    
+    <rect x="210" y="80" width="180" height="32" rx="16" fill="${primaryColor}" fill-opacity="0.2"/>
+    <text x="300" y="101" font-family="-apple-system, sans-serif" font-size="12" font-weight="bold" fill="${primaryColor}" text-anchor="middle" letter-spacing="2">${badgeText}</text>
+    
+    <circle cx="300" cy="360" r="100" fill="#ffffff" fill-opacity="0.04"/>
+    <text x="300" y="390" font-size="90" text-anchor="middle">${isNovel ? '📖' : '🎨'}</text>
+    
+    <text x="300" y="530" font-family="-apple-system, sans-serif" font-size="28" font-weight="bold" fill="#ffffff" text-anchor="middle">${title.replace(/[<>&"]/g, '')}</text>
+    <text x="300" y="575" font-family="-apple-system, sans-serif" font-size="17" fill="#cbd5e1" text-anchor="middle">${author.replace(/[<>&"]/g, '')}</text>
+    
+    <line x1="200" y1="630" x2="400" y2="630" stroke="${primaryColor}" stroke-width="2" stroke-opacity="0.4"/>
+    <text x="300" y="780" font-family="-apple-system, sans-serif" font-size="13" fill="#94a3b8" text-anchor="middle">Cozy Sanctuary Library</text>
+  </svg>`;
 
-"오늘 하루도 참 고생 많았어."
+  res.setHeader("Content-Type", "image/svg+xml");
+  res.send(svg);
+});
 
-작은 속삭임과 함께 테라스 정원에서 바람결에 흔들리는 라벤더 꽃잎 소리가 들려왔습니다. 세상의 모든 분주함이 잠시 멈춘 듯한 평온한 이 순간, 마음속 깊은 곳까지 따스한 위로가 차올랐습니다.`,
-        genre: genre || "힐링 일상",
-        isAiGenerated: false,
+// --- Book / Manga / SNovel PDF Library Management APIs ---
+function scanBookFolder(category: 'snovel' | 'manga') {
+  const folderName = category === 'snovel' ? 'SNovel' : 'Manga';
+  const categoryPath = path.join(bookDir, folderName);
+  const books: any[] = [];
+
+  if (!fs.existsSync(categoryPath)) {
+    fs.mkdirSync(categoryPath, { recursive: true });
+    return books;
+  }
+
+  const entries = fs.readdirSync(categoryPath, { withFileTypes: true });
+
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      const bookSubdir = path.join(categoryPath, entry.name);
+      const subFiles = fs.readdirSync(bookSubdir);
+
+      // Find any PDF file in directory (prefer main.pdf)
+      let pdfFileName = subFiles.find((f) => f.toLowerCase() === 'main.pdf');
+      if (!pdfFileName) {
+        pdfFileName = subFiles.find((f) => f.toLowerCase().endsWith('.pdf'));
+      }
+
+      if (!pdfFileName) continue; // No PDF in this folder
+
+      // Automatic Cover Image Matching
+      const coverCandidates = [
+        'cover.png',
+        'cover.jpg',
+        'cover.jpeg',
+        'cover.webp',
+        'cover.svg',
+        'thumb.png',
+        'thumb.jpg',
+        'thumbnail.png',
+        'thumbnail.jpg',
+      ];
+      let coverFileName = subFiles.find((f) => coverCandidates.includes(f.toLowerCase()));
+      if (!coverFileName) {
+        // Find any image file in the directory
+        coverFileName = subFiles.find((f) => /\.(png|jpe?g|webp|svg)$/i.test(f));
+      }
+
+      const infoPath = path.join(bookSubdir, 'info.json');
+      let meta: any = {
+        id: entry.name,
+        folderName: entry.name,
+        type: category,
+        title: entry.name.replace(/_/g, ' '),
+        author: 'Library Edition',
+        description: `${category === 'snovel' ? '라이트노벨' : '만화책'} 도서`,
+        vol: 'Volume 1',
+      };
+
+      if (fs.existsSync(infoPath)) {
+        try {
+          const raw = fs.readFileSync(infoPath, 'utf-8');
+          meta = { ...meta, ...JSON.parse(raw) };
+        } catch (e) {
+          console.error('Failed to parse info.json for', entry.name, e);
+        }
+      }
+
+      const coverPath = coverFileName
+        ? `/Book/${folderName}/${entry.name}/${coverFileName}`
+        : `/api/books/cover-svg?title=${encodeURIComponent(meta.title || entry.name)}&author=${encodeURIComponent(meta.author || '')}&type=${category}`;
+
+      books.push({
+        ...meta,
+        id: entry.name,
+        folderName: entry.name,
+        type: category,
+        pdfPath: `/Book/${folderName}/${entry.name}/${pdfFileName}`,
+        coverPath,
+      });
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.pdf')) {
+      // Loose PDF file placed directly inside /Book/SNovel or /Book/Manga
+      const baseName = entry.name.replace(/\.pdf$/i, '');
+      const coverCandidate = entries.find(
+        (e) => e.isFile() && e.name.startsWith(baseName) && /\.(png|jpe?g|webp|svg)$/i.test(e.name)
+      );
+
+      const coverPath = coverCandidate
+        ? `/Book/${folderName}/${coverCandidate.name}`
+        : `/api/books/cover-svg?title=${encodeURIComponent(baseName)}&type=${category}`;
+
+      books.push({
+        id: baseName,
+        folderName: baseName,
+        type: category,
+        title: baseName.replace(/_/g, ' '),
+        author: 'Uploaded PDF',
+        vol: 'Volume 1',
+        description: `${category === 'snovel' ? '라이트노벨' : '만화책'} 도서`,
+        pdfPath: `/Book/${folderName}/${entry.name}`,
+        coverPath,
       });
     }
+  }
 
-    const systemInstruction = `당신은 감성적이고 따뜻하며 몰입감 넘치는 라이트노벨 및 힐링 소설 작가입니다. 
-독자가 포근한 방에서 따뜻한 차를 마시며 편안하게 읽을 수 있는 아름다운 문체로 한국어 단편 스토리를 작성해주세요.
-적절한 단락 구분, 생생한 묘사와 따스한 대사를 포함해주세요.`;
+  return books;
+}
 
-    const userPrompt = `다음 설정으로 아늑하고 흥미진진한 라노벨/단편 스토리를 지어주세요:
-- 장르: ${genre || "일상 판타지/힐링"}
-- 주인공/등장인물: ${character || "마음이 지친 도시 여행자"}
-- 분위기: ${mood || "따스하고 포근하며 신비로운"}
-- 추가 요청사항: ${prompt || "방 안에서 일어나는 신비롭고 아늑한 순간"}
-- 분량: 한국어 약 ${wordCount}자 내외
-
-결과는 반드시 다음 JSON 형식으로만 응답해주세요:
-{
-  "title": "이야기 제목",
-  "genre": "${genre || "힐링/판타지"}",
-  "content": "이야기 본문 (줄바꿈 포함)",
-  "cozyTip": "이 이야기를 읽을 때 곁들이면 좋은 차 또는 음악 추천 한마디"
-}`;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3.7-flash",
-      contents: userPrompt,
-      config: {
-        systemInstruction,
-        responseMimeType: "application/json",
-        temperature: 0.85,
-      },
-    });
-
-    const responseText = response.text || "{}";
-    let parsedData;
-    try {
-      parsedData = JSON.parse(responseText);
-    } catch {
-      parsedData = {
-        title: "은은한 등불 아래의 서재",
-        genre: genre || "힐링 일상",
-        content: responseText,
-        cozyTip: "따뜻한 얼그레이 밀크티와 로파이 음악을 추천합니다.",
-      };
-    }
-
-    res.json({
-      ...parsedData,
-      isAiGenerated: true,
-    });
+// Get all books in library
+app.get("/api/books", (_req, res) => {
+  try {
+    const snovels = scanBookFolder('snovel');
+    const manga = scanBookFolder('manga');
+    res.json({ snovels, manga, total: snovels.length + manga.length });
   } catch (error) {
-    console.error("Story generation error:", error);
-    res.status(500).json({
-      error: "스토리 생성 중 오류가 발생했습니다.",
-      details: error instanceof Error ? error.message : "Unknown error",
-    });
+    console.error("Scan books error:", error);
+    res.status(500).json({ error: "Failed to scan book directory" });
   }
 });
 
-// Gemini Mood & Meditation Guidance
-app.post("/api/gemini/guidance", async (req, res) => {
+// Upload a new PDF book to public/Book/SNovel/ or public/Book/Manga/
+app.post("/api/books/upload", (req, res) => {
   try {
-    const { feeling, meditationType, goal } = req.body;
-    const ai = getGeminiAI();
+    const { type, folderId, title, author, description, vol, pdfBase64, coverBase64 } = req.body;
 
-    if (!ai) {
-      return res.json({
-        affirmation: "오늘 하루도 최선을 다한 당신, 지금 이 순간만큼은 모든 긴장을 내려놓으세요.",
-        breathingPace: "4초 들이쉬고, 4초 머물고, 4초 내쉬어보세요.",
-        ambientTip: "방의 조명을 앰버 웜톤으로 낮추고 빗소리를 배경음으로 켜보세요.",
-        zenThought: "흘러가는 생각은 구름과 같습니다. 붙잡지 않고 그저 바라보세요.",
-      });
+    if (!type || !title || !pdfBase64) {
+      return res.status(400).json({ error: "type, title, and pdfBase64 are required" });
     }
 
-    const prompt = `사용자의 현재 상태에 맞는 따뜻한 1대1 마음 챙김 명상 가이드와 따뜻한 위로 문장을 작성해주세요:
-- 현재 기분/상태: ${feeling || "피곤하고 생각이 많음"}
-- 명상 유형: ${meditationType || "마음 안정 호흡"}
-- 원하는 목표: ${goal || "편안한 휴식과 긴장 완화"}
+    const folderName = type === 'snovel' ? 'SNovel' : 'Manga';
+    const safeFolderId = folderId 
+      ? folderId.replace(/[^a-zA-Z0-9_-]/g, '_')
+      : `Book_${Date.now()}`;
+      
+    const targetDir = path.join(bookDir, folderName, safeFolderId);
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
 
-다음 JSON 형식으로 응답해주세요:
-{
-  "affirmation": "마음을 어루만지는 따뜻한 확언 문장 1~2문장",
-  "breathingPace": "추천 호흡 리듬과 안내 팁",
-  "ambientTip": "방 조명 및 추천 앰비언트 사운드 조합 팁",
-  "zenThought": "차분한 젠(Zen) 사색 한 구절"
-}`;
+    // Save main.pdf
+    const cleanPdfBase64 = pdfBase64.replace(/^data:application\/pdf;base64,/, '');
+    const pdfBuffer = Buffer.from(cleanPdfBase64, 'base64');
+    fs.writeFileSync(path.join(targetDir, 'main.pdf'), pdfBuffer);
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.7-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        temperature: 0.7,
-      },
-    });
+    // Save cover image if provided, or generate placeholder SVG
+    if (coverBase64) {
+      const cleanCoverBase64 = coverBase64.replace(/^data:image\/[a-z]+;base64,/, '');
+      const coverBuffer = Buffer.from(cleanCoverBase64, 'base64');
+      fs.writeFileSync(path.join(targetDir, 'cover.png'), coverBuffer);
+    } else {
+      const defaultSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="850" viewBox="0 0 600 850">
+        <rect width="600" height="850" fill="#1e293b"/>
+        <rect x="25" y="25" width="550" height="800" rx="16" fill="none" stroke="#f59e0b" stroke-width="2"/>
+        <text x="300" y="380" font-size="70" text-anchor="middle" fill="#ffffff">📖</text>
+        <text x="300" y="520" font-family="sans-serif" font-size="24" font-weight="bold" fill="#ffffff" text-anchor="middle">${title}</text>
+        <text x="300" y="560" font-family="sans-serif" font-size="16" fill="#cbd5e1" text-anchor="middle">${author || 'Custom Book'}</text>
+        <text x="300" y="780" font-family="sans-serif" font-size="12" fill="#94a3b8" text-anchor="middle">Cozy Sanctuary Library</text>
+      </svg>`;
+      fs.writeFileSync(path.join(targetDir, 'cover.png'), defaultSvg);
+    }
 
-    const parsed = JSON.parse(response.text || "{}");
-    res.json(parsed);
+    // Save info.json
+    const infoData = {
+      id: safeFolderId,
+      folderName: safeFolderId,
+      type,
+      title,
+      author: author || '알 수 없는 작가',
+      vol: vol || 'Volume 1',
+      description: description || '직접 등록한 PDF 서적입니다.',
+      pdfPath: `/Book/${folderName}/${safeFolderId}/main.pdf`,
+      coverPath: `/Book/${folderName}/${safeFolderId}/cover.png`,
+      isCustomUploaded: true,
+      createdAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(path.join(targetDir, 'info.json'), JSON.stringify(infoData, null, 2));
+
+    res.json({ success: true, book: infoData });
   } catch (error) {
-    console.error("Guidance error:", error);
-    res.status(500).json({ error: "가이드 생성 중 오류가 발생했습니다." });
+    console.error("Upload book error:", error);
+    res.status(500).json({ error: "Failed to upload and save book" });
+  }
+});
+
+// Delete a book
+app.delete("/api/books/:type/:id", (req, res) => {
+  try {
+    const { type, id } = req.params;
+    const folderName = type === 'snovel' ? 'SNovel' : 'Manga';
+    const targetDir = path.join(bookDir, folderName, id);
+
+    if (fs.existsSync(targetDir)) {
+      fs.rmSync(targetDir, { recursive: true, force: true });
+      return res.json({ success: true });
+    }
+    res.status(404).json({ error: "Book not found" });
+  } catch (error) {
+    console.error("Delete book error:", error);
+    res.status(500).json({ error: "Failed to delete book" });
   }
 });
 

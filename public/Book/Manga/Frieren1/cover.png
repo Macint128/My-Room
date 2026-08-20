@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="850" viewBox="0 0 600 850">
+    <defs>
+      <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#064e3b" />
+        <stop offset="100%" stop-color="#0a0a12" />
+      </linearGradient>
+      <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#34d399" />
+        <stop offset="100%" stop-color="#fbbf24" />
+      </linearGradient>
+    </defs>
+    <rect width="600" height="850" fill="url(#bgGrad)"/>
+    <rect x="25" y="25" width="550" height="800" rx="16" fill="none" stroke="url(#goldGrad)" stroke-width="3" stroke-opacity="0.6"/>
+    
+    <!-- Top badge -->
+    <rect x="50" y="60" width="140" height="34" rx="17" fill="#34d399" fill-opacity="0.25" stroke="#34d399" stroke-width="1.5"/>
+    <text x="120" y="82" font-family="sans-serif" font-size="13" font-weight="bold" fill="#ffffff" text-anchor="middle">MANGA COMIC</text>
+    
+    <!-- Center Graphic Symbol -->
+    <circle cx="300" cy="380" r="140" fill="#34d399" fill-opacity="0.15" stroke="#34d399" stroke-width="2"/>
+    <text x="300" y="420" font-size="110" text-anchor="middle" fill="#ffffff">🌿</text>
+    
+    <!-- Title Area -->
+    <rect x="40" y="570" width="520" height="180" rx="12" fill="#000000" fill-opacity="0.4" stroke="#ffffff" stroke-opacity="0.1"/>
+    <text x="300" y="630" font-family="sans-serif" font-size="24" font-weight="bold" fill="#ffffff" text-anchor="middle">장송의 프리렌 1권 (Manga)</text>
+    <text x="300" y="675" font-family="sans-serif" font-size="18" font-weight="600" fill="#34d399" text-anchor="middle">Chapter 01 - The Journey Begins</text>
+    <text x="300" y="715" font-family="sans-serif" font-size="13" fill="#cbd5e1" text-anchor="middle">Official Light Novel / Manga Edition</text>
+    
+    <text x="300" y="800" font-family="sans-serif" font-size="12" fill="#64748b" text-anchor="middle">Cozy Sanctuary Library</text>
+  </svg>
